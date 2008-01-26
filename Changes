@@ -1,0 +1,9 @@
+Revision history for Perl extension WEC::MySQL.
+
+Todo:
+	- is packet length 0 2**24 or 0 ?
+
+0.01  Mon Jul 12 00:26:22 2004
+	- original version; created by h2xs 1.23 with options
+		-Xn WEC::MySQL
+

@@ -1,0 +1,87 @@
+#!/usr/bin/perl -w
+use lib "/home/ton/perl-modules/WEC-MySQL/blib/lib";
+use strict;
+
+use Data::Dumper;
+$Data::Dumper::Indent = 1;
+
+use DBD::mysql;
+use DBI;
+
+my $table = "wec_test";
+
+my $id_file;
+my @id_files = ("$ENV{HOME}/conf/test_mysql.id", "$ENV{HOME}/test_mysql.id");
+for (@id_files) {
+    next unless -f  && -r _;
+    require $_;
+    $id_file = $_;
+    last;
+}
+$id_file || die "Could not find a file with mysql ids out of @id_files";
+our ($user, $password, $database, $scratch_database, $startup, $destination);
+my ($host, $port, $dsn);
+if ($destination) {
+    ($host, $port) = $destination =~ m!^tcp://(.*):(.*)$! or
+        die "Could not parse destination $destination";
+    die "Don;t use $host in a tcp:// destination, it means to use the unix socket"
+        if uc($host) eq "LOCALHOST";
+    $dsn = "dbi:mysql:database=$database;host=$host;port=$port";
+} else {
+    $host = "localhost";
+    $port = "";
+    $dsn = "dbi:mysql:database=$database;host=$host";
+}
+$dsn .= ";mysql_compression=1";
+
+my $dbh = DBI->connect($dsn, $user, $password, {
+    RaiseError => 1,
+    PrintError => 0});
+
+use t::strings;
+our ($bad, $bit);
+
+my $sth;
+if (0) {
+    $dbh->do("SET SESSION max_allowed_packet=64000000");
+    $sth = $dbh->prepare("SHOW VARIABLES");
+    $sth->execute;
+    while (my $ref = $sth->fetchrow_arrayref) {
+        print "@$ref\n";
+    }
+}
+if (0) {
+    eval { $dbh->do("drop table blobby") };
+    $dbh->do("create table blobby (foo longblob)");
+    $sth = $dbh->prepare("INSERT INTO blobby VALUES(?)");
+    # $sth->execute("a" x 2**25);
+    $sth->execute("a" x (2**24-31));
+    $sth = $dbh->prepare("SELECT * FROM blobby");
+    $sth->execute;
+    while (my $ref = $sth->fetchrow_arrayref) {
+        print length($ref->[0]), "\n";
+    }
+} elsif (1) {
+    eval { $dbh->do("drop table blobby") };
+    $dbh->do("create table blobby (foo longblob)");
+    $sth = $dbh->prepare("INSERT INTO blobby VALUES(?)");
+    $sth->execute($bit x (2**25/length($bit)));
+    $sth->execute("foo");
+    $sth->execute("bar");
+    $sth->execute("baz");
+    $sth = $dbh->prepare("SELECT * FROM blobby");
+    $sth->execute;
+    while (my $ref = $sth->fetchrow_arrayref) {
+    }
+} else {
+    my $len = 2**24-6;
+    my $str = $bad x ($len/length($bad));
+    $str .= substr($bad, 0, $len-length($str));
+    my $p = pack("V", length($str)+7) . "\x03/* " . $str . " */";
+    use Compress::Zlib;
+    my $c = compress($p);
+    printf STDERR "Compressed len=%d (%x)\n", length($c), length($c);
+    print STDERR "First bytes: ", unpack("H*", substr($c, 0, 10)), "\n";
+    $dbh->do("/* $str */");
+}
+

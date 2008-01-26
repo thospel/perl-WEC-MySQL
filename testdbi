@@ -1,0 +1,118 @@
+#!/usr/bin/perl -w
+use lib "/home/ton/perl-modules/WEC-MySQL/blib/lib";
+use strict;
+
+use Test::More qw(no_plan);
+
+use Data::Dumper;
+$Data::Dumper::Indent = 1;
+
+use DBD::mysql;
+use DBI;
+
+my $table = "wec_test";
+
+my $id_file;
+my @id_files = ("$ENV{HOME}/conf/test_mysql.id", "$ENV{HOME}/test_mysql.id");
+for (@id_files) {
+    next unless -f  && -r _;
+    require $_;
+    $id_file = $_;
+    last;
+}
+$id_file || die "Could not find a file with mysql ids out of @id_files";
+our ($user, $password, $database, $scratch_database, $startup, $destination);
+my ($host, $port, $dsn);
+if ($destination) {
+    ($host, $port) = $destination =~ m!^tcp://(.*):(.*)$! or
+        die "Could not parse destination $destination";
+    die "Don;t use $host in a tcp:// destination, it means to use the unix socket"
+        if uc($host) eq "LOCALHOST";
+    $dsn = "dbi:mysql:database=$database;host=$host;port=$port";
+} else {
+    $host = "localhost";
+    $port = "";
+    $dsn = "dbi:mysql:database=$database;host=$host";
+}
+
+my $dbh = DBI->connect($dsn, $user, $password, {
+    RaiseError => 1,
+    PrintError => 0});
+my $sth = $dbh->prepare("SELECT 5+3");
+$sth->execute;
+my $ref = $sth->fetchall_arrayref;
+is_deeply($ref, [[8]], "5+3=8");
+eval { $dbh->do("DROP TABLE $table") };
+eval { $dbh->do("DROP TABLE $table") };
+like($@, qr/DBD::mysql::db do failed: Unknown table '\Q$table\E' at /,
+     "proper message for double drop");
+is($dbh->{mysql_errno}, 1051, "Proper errno");
+$dbh->do("create table $table (id int auto_increment, foo varchar(20) unique, primary key(id))");
+$sth = $dbh->prepare("INSERT INTO $table VALUES(?, ?)");
+$sth->execute(undef, "foo");
+is($dbh->{mysql_insertid}, 1, "Proper autoincrement value");
+eval { $sth->execute(undef, "foo") };
+like($@, qr/DBD::mysql::st execute failed: Duplicate entry 'foo' for key 2 at/,
+     "proper message for double insert");
+is($dbh->{mysql_errno}, 1062, "Proper errno");
+like($dbh->{"stat"}, qr/Uptime: \d+/, "statistics works");
+my $fake = $dbh->{mysql_serverinfo} =~ /WEC::MySQL/;
+is($dbh->ping, 1, "Real ping");
+
+if ($scratch_database) {
+    eval { $dbh->do("DROP DATABASE `$scratch_database`") };
+    eval { $dbh->do("DROP DATABASE `$scratch_database`") };
+    if ($dbh->{mysql_errno} == 1044) {
+        like($@, qr/Access denied for user: '.*' to database '\Q$scratch_database\E'/, "Second drop fails");
+    } elsif ($dbh->{mysql_errno} == 1008) {
+        like($@, qr/DBD::mysql::db do failed: Can't drop database '\Q$scratch_database\E'. Database doesn't exist at/, "Second drop fails");
+    } else {
+        fail("Unknown errno $dbh->{mysql_errno}");
+    }
+    # diag($dbh->func("_CreateDB", $scratch_database, "admin"));
+    # diag($dbh->func("createdb", $scratch_database, "admin"));
+}
+
+my $drh = DBI->install_driver("mysql");
+my @dbs = $drh->func($host, $port, $user, $password, "_ListDBs");
+is(grep($_ eq $database, @dbs), 1, "Current database is in list");
+is($dbh->ping, 1, "Original handle still works");
+
+# Refresh auto-closes
+if ($fake) {
+    is($dbh->func("reload", "admin"), 1, "Refresh");
+} else {
+    $dbh->func("reload", "admin");
+}
+is($dbh->ping, "", "Original handle gone");
+$dbh = DBI->connect($dsn, $user, $password, {
+    RaiseError => 1,
+    PrintError => 0});
+
+if ($startup) {
+    diag("\nWill now try to shut down the server.\nDon't define \$startup in your $id_file if you don't want this");
+    my $stopped = $dbh->func("shutdown", "admin");
+    if ($stopped) {
+        diag("Restarting server");
+        sleep 5;
+        if (my $rc = system($startup)) {
+            fail("Restart returned $rc");
+            diag("Unexpected returncode $rc from $startup. Giving up\nPlease restart the server by hand");
+            exit;
+        }
+        sleep 5;
+        # See if server is back
+        $dbh = DBI->connect($dsn, $user, $password, {
+            RaiseError => 1,
+            PrintError => 0});
+        if ($dbh->ping != 1) {
+            fail("Server restart failed");
+            diag("Failed to restart the server");
+            exit;
+        }
+    } else {
+        # I know no way to get the errno in fact
+        # diag($dbh->{mysql_errno});
+        # diag($dbh->{mysql_error});
+    }
+}

@@ -1,0 +1,21 @@
+# Define user and password
+our $user	= undef;
+our $password	= undef;
+
+# Database on which we will run tests
+our $database	= "test";
+
+# A fake database we will try to create and drop. 
+# Don't use anything you care about here
+our $scratch_database = "test_WEC";
+
+# Change the server we connect to
+# our $destination = "tcp://foo.example.com:3306";
+# our $destination = "unix:///var/run/mysqld/mysqld.sock";
+
+# Command to start the server
+# Uncommenting this implies that the test program will
+# try to do a mysql serveer shutdown and then use this for restart
+# our $startup = "/etc/init.d/mysql start";
+
+1;

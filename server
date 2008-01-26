@@ -1,0 +1,373 @@
+#!/usr/bin/perl -w
+use lib "/home/ton/perl-modules/WEC-MySQL/blib/lib";
+use strict;
+use WEC::Socket qw(unix inet);
+use WEC qw(loop);
+use WEC::MySQL::Server;
+use WEC::MySQL::Constants qw(:Errors);
+
+use constant DEBUG	=> 1;
+
+# use Data::Dumper;
+# $Data::Dumper::Indent = 1;
+
+my %databases = 
+    (test	=> {},
+     mysql	=> {});
+
+my %unescape = 
+    ('0' => "\0",
+     'n' => "\n",
+     'r' => "\r",
+     "\\" => "\\",
+     "'" => "'",
+     '"' => '"',
+     "Z" => "\032");
+WEC->init;
+
+my $file;
+my @files = ("$ENV{HOME}/conf/test_mysql.id", "$ENV{HOME}/test_mysql.id");
+for (@files) {
+    next unless -f  && -r _;
+    require $_;
+    $file = $_;
+    last;
+}
+$file || die "Could not find a file with mysql ids out of @files";
+our ($user, $password, $database, $scratch_database, $startup);
+
+my $socket = inet(LocalPort => 1234, Reuse => 1);
+my $server = WEC::MySQL::Server->new(Handle => $socket,
+                                     Compress	=> -1,
+                                     CheckAccess => \&check_access,
+                                     Quit	=> \&quit,
+                                     SelectDb	=> \&select_db,
+                                     Query	=> \&query,
+                                     FieldList	=> \&field_list,
+                                     CreateDb	=> \&create_db,
+                                     DropDb	=> \&drop_db,
+                                     Refresh	=> \&refresh,
+                                     Shutdown	=> \&shutdown,
+                                     Statistics	=> \&statistics,
+                                     ProcessInfo=> \&process_info,
+                                     ProcessKill=> \&process_kill,
+                                     DebugInfo	=> \&debug,
+                                     Ping	=> \&ping,
+                                     ChangeUser	=> \&change_user,
+                                     BinlogDump	=> \&binlog_dump,
+                                     TableDump	=> \&table_dump,
+                                     );
+loop;
+print STDERR "Boooooring\n";
+
+sub check_access {
+    my ($c, $user, $host, $pass, $db) = @_;
+    print STDERR "check_access user=$user,host=$host,pass=$pass,db=", defined($db) ? $db : "undef", "\n" if DEBUG;
+    return $c->send_error(ACCESS_DENIED_ERROR, "Access denied for user: '$user\@$host' (Using password: " . (defined($pass) && $pass ne "" ? "YES" : "NO") . ")") if $c->scramble_password($password) ne $pass;
+    return $c->send_ok;
+}
+
+sub diag {
+    print STDERR @_, "\n";
+}
+
+sub field_list {
+    my ($c, $table, $wild) = @_;
+    print STDERR "field_list table=$table, wild=$wild\n" if DEBUG;
+    $c->send_fields([{Table	=> "wec_test",
+                      Field	=> "id",
+                      MaxLength	=> 11,
+                      Type	=> "LONG",
+                      Flags	=> 16899,
+                      Decimals	=> 0,
+                      Default	=> "0"},
+                     {Table	=> "wec_test",
+                      Field	=> "foo",
+                      MaxLength => 20,
+                      Type	=> "VAR_STRING",
+                      Flags	=> 16392,
+                      Decimals	=> 0,
+                      Default	=> undef}]);
+}
+
+sub select_db {
+    my ($c, $db) = @_;
+    print STDERR "select_db db=$db\n" if DEBUG;
+    if ($databases{$db}) {
+        $c->send_ok;
+    } else {
+        $c->send_error(BAD_DB_ERROR, "Unknown database '$db'");
+    }
+}
+
+sub create_db {
+    my ($c, $db) = @_;
+    print STDERR "create_db db=$db\n" if DEBUG;
+    if ($databases{$db}) {
+        $c->send_error(DB_CREATE_EXISTS, 
+                       "Can't create database '$db'. Database exists");
+    } else {
+        $databases{$db} = {};
+        $c->send_ok(1);
+    }
+}
+
+sub drop_db {
+    my ($c, $db) = @_;
+    print STDERR "drop_db db=$db\n" if DEBUG;
+    if (delete $databases{$db}) {
+        $c->send_ok;
+    } else {
+        $c->send_error(DB_DROP_EXISTS, 
+                       "Can't drop database '$db'. Database doesn't exist");
+    }
+}
+
+sub query {
+    my ($c, $query) = @_;
+    print STDERR "Query query=", length($query) > 60 ? substr($query, 0, 60) . "..." : $query, "\n" if DEBUG;
+    $query =~ s/^\s+//;
+    $query =~ s/\s+\z//;
+    if ($query =~ /; /) {
+        $c->send_error(PARSE_ERROR, "You have an error in your SQL syntax");
+    } elsif (my ($expr) = $query =~ /^SELECT\s+(\d+\s*\+\s*\d+)$/i) {
+        $c->send_table([{Table	=> "",
+                         Field	=> $expr,
+                         MaxLength => 17,
+                         Type	=> "LONGLONG",
+                         Flags	=> 1, 
+                         Decimals => 0}],
+                       [[eval $expr]]);
+    } elsif (($expr) = $query =~ /^SELECT\s+('\d+'\s*\+\s*'\d+')$/i) {
+        $c->send_table([{Table	=> "",
+                         Field	=> $expr,
+                         MaxLength => 23,
+                         Type	=> "DOUBLE",
+                         Flags	=> 1, 
+                         Decimals => 31}],
+                       [[eval $expr]]);
+    } elsif (my ($table, $spec) = 
+             $query =~ /CREATE\s+TABLE\s+(\w+)\s+\((.*)\)$/i) {
+        my $db = $c->database || die "No current database";
+        my $tables = $databases{$db} || die "Database $db doesn't exist";
+        if ($tables->{$table}) {
+            $c->send_error(TABLE_EXISTS_ERROR, 
+                           "Table '$table' already exists");
+            return;
+        }
+        $tables->{$table} = {create => $spec, 
+                             auto => 0, foos => {}, content => []};
+        $c->send_ok;
+    } elsif (($table) = $query =~ /^DROP\s+TABLE\s+(\w+)$/i) {
+        my $db = $c->database || die "No current database";
+        my $tables = $databases{$db} || die "Database $db doesn't exist";
+        if (delete $tables->{$table}) {
+            $c->send_ok;
+        } else {
+            $c->send_error(BAD_TABLE_ERROR, "Unknown table '$table'");
+        }
+    } elsif (($table, my $col, my $val) = $query =~ 
+             /^DELETE\s+FROM\s+(\w+)\s+WHERE\s+(\w+)\s*=\s*'(\w*)'$/i) {
+        my $db = $c->database || die "No current database";
+        my $tables = $databases{$db} || die "Database $db doesn't exist";
+        if (!$tables->{$table}) {
+            $c->send_error(BAD_TABLE_ERROR, "Unknown table '$table'");
+            return;
+        }
+        $tables->{$table}{create} eq "id int auto_increment, foo varchar(20) unique, primary key(id)" || die "Dunno how to handle $tables->{$table}{create}";
+        if ($col eq "foo") {
+            $tables->{$table}{content} = [grep $_->[1] ne $val, @{$tables->{$table}{content}}];
+            delete $tables->{$table}{foos}{$val};
+            $c->send_ok;
+        } elsif ($col eq "id") {
+            my $removed = 0;
+            $tables->{$table}{content} = [grep {
+                if ($_->[0] eq $val) {
+                    delete $tables->{$table}{foos}{$_->[1]};
+                    $removed++;
+                    0;
+                } else {
+                    1;
+                }
+            } @{$tables->{$table}{content}}];
+            $c->send_ok($removed);
+        } else {
+            die "Unknown col $col";
+        }
+    } elsif (($table, my $values) = 
+             $query =~ /^INSERT\s+INTO\s+(\w+)\s+VALUES\s*(.*)$/i) {
+        my $db = $c->database || die "No current database";
+        my $tables = $databases{$db} || die "Database $db doesn't exist";
+        my $t = $tables->{$table};
+        if (!$t) {
+            $c->send_error(BAD_TABLE_ERROR, "Unknown table '$table'");
+            return;
+        }
+        $t->{create} eq "id int auto_increment, foo varchar(20) unique, primary key(id)" || die "Dunno how to handle $t->{create}";
+        my $inserts = 0;
+        $values = ",$values";
+        my $foos = $t->{foos};
+        my $last;
+        while ($values =~ s/^,\s*\(\s*((?:NULL|'[^\'\\]*(?:\\.[^\'\\]*)*')(?:\s*,\s*(?:NULL|'[^\'\\]*(?:\\.[^\'\\]*)*'))*)\s*\)\s*//si) {
+            my $body = $1;
+            $body =~ s/\s*\z//;
+            if (my ($id, $foo) = $body =~ /^(NULL|'\w*')\s*,\s*'([^\'\\]*(?:\\.[^\'\\]*)*)'$/s) {
+                $id = $id =~ /'(\w*)'/ ? $1 : 0;
+                $foo =~ s/\\(.)/$unescape{$1}/sg;
+                if ($foos->{$foo}++) {
+                    $c->send_error(DUP_ENTRY, 
+                                   "Duplicate entry '$foo' for key 2");
+                    return;
+                }
+                push(@{$t->{content}}, [$last = $id || ++$t->{auto}, $foo]);
+                $inserts++;
+            } else {
+                die "Cannot parse val body: $body";
+            }
+        }
+        $values eq "" || die "Unexpected extra stuff in VALUES: $values";
+        $c->send_ok($inserts, $last);
+    } elsif (my ($db) = $query =~ /^DROP\s+DATABASE\s+`(\w+)`$/i) {
+        if (delete $databases{$db}) {
+            $c->send_ok;
+        } else {
+            # $c->send_error(DB_DROP_EXISTS, "Can't drop database '$db'. Database doesn't exist");
+            $c->send_error(DBACCESS_DENIED_ERROR, "Access denied for user: '" . $c->user() . '@' . $c->host() . "' to database '$db'");
+        }
+    } elsif (($db) = $query =~ /^CREATE\s+DATABASE\s+`(\w+)`$/i) {
+        if ($databases{$db}) {
+            $c->send_error(DB_CREATE_EXISTS, 
+                           "Can't create database '$db'. Database exists");
+        } else {
+            $databases{$db} = {};
+            $c->send_ok(1);
+        }
+    } elsif (($table, my $id) = $query =~ /^SELECT\s+\*\s+FROM\s+(\w+)(?:\s*WHERE\s+id='(\w+)')?$/i) {
+        my $db = $c->database || die "No current database";
+        my $tables = $databases{$db} || die "Database $db doesn't exist";
+        if (!$tables->{$table}) {
+            $c->send_error(BAD_TABLE_ERROR, "Unknown table '$table'");
+            return;
+        }
+        $tables->{$table}{create} eq "id int auto_increment, foo varchar(20) unique, primary key(id)" || die "Dunno how to handle $tables->{$table}{create}";
+        $c->send_table([{
+            Table	=> "wec_test",
+            Field	=> "id",
+            MaxLength=> 11,
+            Type	=> "LONG",
+            Flags	=> 16899,
+            Decimals	=> 0,
+        }, {
+            Table	=> "wec_test",
+            Field	=> "foo",
+            MaxLength=> 20,
+            Type	=> "VAR_STRING",
+            Flags	=> 16392,
+            Decimals	=> 0}], defined($id) ? [grep $_->[0] eq $id, @{$tables->{$table}{content}}]: $tables->{$table}{content});
+    } elsif ($query =~ /^SHOW DATABASES$/i) {
+        $c->send_table([{
+            'Table' => '',
+            'Type' => 'STRING',
+            'Field' => 'Database',
+            'Flags' => 1,
+            'Decimals' => 31,
+            'MaxLength' => 64,
+        }], [map [$_], keys %databases]);
+    } else {
+        print STDERR "Unhandled command $query\n";
+        $c->send_error(NOT_SUPPORTED_YET, "$query not supported (yet)");
+    }
+}
+
+sub refresh {
+    my ($c, $flags) = @_;
+    print STDERR "refresh flags=$flags\n" if DEBUG;
+    $c->send_ok;
+}
+
+sub quit {
+    my ($c) = @_;
+    print STDERR "quit\n" if DEBUG;
+}
+
+sub shutdown {
+    my ($c) = @_;
+    print STDERR "shutdown\n" if DEBUG;
+    # $c->send_shutdown;
+    $c->send_error(SPECIFIC_ACCESS_DENIED_ERROR, "Access denied. You need the SHUTDOWN privilege for this operation");
+    # $server = "";
+    # exit;
+}
+
+sub statistics {
+    my ($c) = @_;
+    print STDERR "statistics\n" if DEBUG;
+    $c->send_statistics("Uptime: 493942  Threads: 1  Questions: 2096732  Slow queries: 0  Opens: 1010  Flush tables: 1  Open tables: 4  Queries per second avg: 4.245  Memory in use: 42112K  Max memory used: 43948K");
+}
+
+sub process_info {
+    my ($c) = @_;
+    print STDERR "process_info\n" if DEBUG;
+    $c->send_simple_process_info([[qw(a b c d e f g h)]]);
+}
+
+sub process_kill {
+    my ($c, $pid) = @_;
+    print STDERR "process_kill pid=$pid\n" if DEBUG;
+    if (my $kill = $c->thread2connection($pid)) {
+        $c->send_ok;
+        # $c->kill;
+        $c->send_close;
+    } else {
+        $c->send_error(NO_SUCH_THREAD, "Unknown thread id: $pid");
+    }
+}
+
+sub debug {
+    my ($c) = @_;
+    print STDERR "debug\n" if DEBUG;
+    $c->send_debugged;
+}
+
+sub ping {
+    my ($c) = @_;
+    print STDERR "ping\n" if DEBUG;
+    $c->send_ok;
+}
+
+sub change_user {
+    my ($c, $user, $host, $pass, $db) = @_;
+    print STDERR "change_user $user, $host, $pass, $db\n" if DEBUG;
+    if ($c->scramble_password($password) ne $pass) {
+        $c->send_error(ACCESS_DENIED_ERROR, "Access denied for user: '$user\@$host' (Using password: " . (defined($pass) && $pass ne "" ? "YES" : "NO") . ")") if $c->scramble_password($password) ne $pass;
+    } elsif ($databases{$db}) {
+        $c->send_ok;
+    } else {
+        $c->send_error(DBACCESS_DENIED_ERROR, "Access denied for user: '$user\@$host' to database '$db'");
+    }
+}
+
+sub table_dump {
+    my ($c, $db, $table) = @_;
+    print STDERR "table_dump db=$db, table=$table\n" if DEBUG;
+
+    my $tables = $databases{$db};
+    if (!$tables || !$tables->{$table}) {
+        $c->send_error(NO_SUCH_TABLE, "Table '$db.$table' doesn't exist");
+        return;
+    }
+    $tables->{$table}{create} eq "id int auto_increment, foo varchar(20) unique, primary key(id)" || die "Dunno how to handle $tables->{$table}{create}";
+    $c->send_table_dump("CREATE TABLE `wec_test` (
+  `id` int(11) NOT NULL auto_increment,
+  `foo` varchar(20) default NULL,
+  PRIMARY KEY  (`id`),
+  UNIQUE KEY `foo` (`foo`)
+) TYPE=MyISAM", ("a" x 4096) x 20);
+}
+
+sub binlog_dump {
+    my ($c, $pos, $flags, $id, $file) = @_;
+    print STDERR "binlog_dump pos=$pos, flags=$flags, slave_id=$id, file=$file\n" if DEBUG;
+    $c->send_error(MASTER_FATAL_ERROR_READING_BINLOG, 
+                   "Binary log is not open");
+}

@@ -1,0 +1,83 @@
+#!/usr/bin/perl -w
+use lib "/home/ton/perl-modules/WEC-MySQL/blib/lib";
+use strict;
+use WEC qw(loop);
+use WEC::MySQL::Client;
+
+use Data::Dumper;
+$Data::Dumper::Indent = 1;
+
+WEC->init;
+
+my $file;
+my @files = ("$ENV{HOME}/conf/test_mysql.id", "$ENV{HOME}/test_mysql.id");
+for (@files) {
+    next unless -f  && -r _;
+    require $_;
+    $file = $_;
+    last;
+}
+$file || die "Could not find a file with mysql ids out of @files";
+our ($destination, $user, $password, $database, $scratch_database, $startup);
+
+my $client = WEC::MySQL::Client->new($destination ? (Destination => $destination) : (),
+                                     User	=> $user,
+                                     Password	=> $password,
+                                     Database	=> $database,
+                                     Greeting	=> \&greeting);
+my $c = $client->connect;
+# $c->change_user(\&callback, $user, $password, $database);
+loop;
+print STDERR "Boooooring\n";
+
+sub callback {
+    my $connection = shift;
+    print STDERR Dumper(\@_);
+}
+
+sub greeting {
+    my $connection = shift;
+    print STDERR "Server Version: ", $connection->server_version, "\n";
+    print STDERR "Thread ", $connection->thread_id, "\n";
+    # $connection->process_info(\&callback);
+    # $connection->command(\&callback, "select * from mysql.user");
+    # $connection->select_db(\&callback, "test");
+    # $connection->field_list(\&callback, "pet");
+    $connection->command(\&callback, "SHOW FIELDS IN pet");
+    # $connection->command(\&callback, "SHOW DATABASES");
+    # $connection->field_list(\&callback, "wec_test");
+    # $connection->WEC::FieldConnection::send("\26\0\0\0\0\0\0\22\0\0\0\3select * from foo");
+    $connection->command(\&callback, "select * from foo");
+    # $connection->command(\&callback, "SELECT REPEAT('a', 1047552)");
+    # $connection->command(\&callback, "INSERT INTO foo values('BLUB')");
+    # $connection->command(\&callback, "INSERT INTO foo values('BLUB$$'),('BLOB$$')");
+    # $connection->refresh(\&callback, "threads");
+    # $connection->shutdown(\&callback);
+    # $connection->statistics(\&callback);
+    # $connection->debug_info(\&callback);
+    $connection->ping(\&callback);
+    # $connection->change_user(\&callback, $user, $password, $database);
+    # $connection->command(\&callback, "show databases");
+    # $connection->command(\&callback, "create database foo");
+    # $connection->create_db(\&callback, "foo");
+    # $connection->drop_db(\&callback, "foo");
+    # $connection->command(\&callback, "show databases");
+    # $connection->command(\&callback, "show fields from pet");
+    # $connection->command(\&callback, "show tables");
+    # $connection->command(\&callback, "show status");
+    # $connection->command(\&callback, "select DATABASE(),USER()");
+    # $connection->process_info(\&callback);
+    # print STDERR "Id=", $connection->thread_id, "\n";
+    # $connection->process_kill(\&callback, 1+$connection->thread_id);
+    # $connection->command(\&callback, "show processlist");
+    # $connection->binlog_dump(\&callback, 0, 0, 0, "foo");
+    # $connection->table_dump(\&callback, "test", "foo");
+    # $connection->table_dump(\&callback, "test", "wec_test");
+    # $connection->statistics(\&callback);
+    $connection->quit;
+    # $connection->statistics(\&callback);
+}
+
+sub diag {
+    print STDERR @_, "\n";
+}
