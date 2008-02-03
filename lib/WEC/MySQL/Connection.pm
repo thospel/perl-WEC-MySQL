@@ -8,7 +8,7 @@ use WEC::Connection;
 use WEC::MySQL::Constants qw(ENCODED_ZERO ENCODED_NULL MAX3
                              :Commands :Capabilities :FieldTypes :Refresh);
 
-our $VERSION = "0.01";
+our $VERSION = "1.000";
 our @CARP_NOT	= qw(WEC::Connection);
 
 use base qw(WEC::Connection);
@@ -434,7 +434,7 @@ use WEC::MySQL::Constants qw(REC_LEN COMPRESS_LEN PART_MASK MAX3
 
 use constant SEQ_NO	=> 1+PARENT;
 
-our $VERSION = "0.01";
+our $VERSION = "1.000";
 use base qw(WEC::MySQL::Connection);
 use fields qw(nr_fields nr_records rows);
 
@@ -1512,7 +1512,7 @@ use WEC::MySQL::Constants qw(LATIN1 REC_LEN COMPRESS_LEN
                              NOT_SUPPORTED_YET SPECIFIC_ACCESS_DENIED_ERROR
                              :Capabilities :Commands);
 
-our $VERSION = "0.01";
+our $VERSION = "1.000";
 use base qw(WEC::MySQL::Connection);
 use fields qw(host);
 
@@ -2063,7 +2063,7 @@ sub host {
 }
 
 package WEC::MySQL::Statement;
-our $VERSION = "0.01";
+our $VERSION = "1.000";
 
 sub execute {
     my $statement = shift;

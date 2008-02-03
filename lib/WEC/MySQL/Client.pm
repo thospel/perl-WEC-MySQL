@@ -7,7 +7,7 @@ use Carp;
 use WEC::MySQL::Connection;
 use WEC::MySQL::Constants qw(PORT SOCKET);
 
-our $VERSION = "0.01";
+our $VERSION = "1.000";
 our @CARP_NOT	= qw(WEC::FieldClient WEC::MySQL::Connection);
 
 use base qw(WEC::Client);
