@@ -328,7 +328,7 @@ sub parse_ok {
 }
 
 # From mysql_sub_escape_string in libmysql/libmysql.c
-my %quote = 
+my %quote =
     (""	  => "'",
      "\0" => '\0',
      "\n" => '\n',
@@ -347,7 +347,7 @@ sub quote {
 
 sub _quote {
     shift;
-    defined() ? 
+    defined() ?
         s/(\A|[\0\n\r\\'"\032]|\z)/$quote{$1}/g  > 1 || ($_ = "''")# "'])//
         : ($_ = "NULL") for shift
 }
@@ -395,7 +395,7 @@ sub send_compressed {
     croak "This code doesn't do huge packets" if $length > 0.99 * MAX3;
     my $compressed = Compress::Zlib::compress($_[1]);
     if (length $compressed < $length) {
-        $connection->{out_buffer} .= 
+        $connection->{out_buffer} .=
             pack('V@3CV', length $compressed, ++$_[0] % 256, $length);
         chop $connection->{out_buffer};
         $connection->{out_buffer} .= $compressed;
@@ -517,7 +517,7 @@ sub greeting_body {
     my $with_db = $caps & CONNECT_WITH_DB && defined $connection->{database} ?
         CONNECT_WITH_DB : 0;
     if ($connection->{compress} && !($caps & COMPRESS)) {
-        croak "Server doesn't support compression" if 
+        croak "Server doesn't support compression" if
             $connection->{compress} > 0;
         $connection->{compress} = 0;
     }
@@ -632,7 +632,7 @@ sub command_header {
     my $connection = shift;
     my ($length, $seq_no) =
         unpack('V@3C', substr($_, 0, $connection->{in_want}, ""));
-    $seq_no == ++$connection->{answers}[0][SEQ_NO]%256 || 
+    $seq_no == ++$connection->{answers}[0][SEQ_NO]%256 ||
         $connection->{compress} && $seq_no == 0 &&
         # Also only should be so on error
         ($connection->{answers}[0][COMMAND] == INIT_DB ||
@@ -1021,7 +1021,7 @@ sub tdump {
                 $connection->close_on_empty("quit");
             }
             return;
-        } elsif ($connection->{answers}[0][SEQ_NO] == 1 && 
+        } elsif ($connection->{answers}[0][SEQ_NO] == 1 &&
                  substr($_, 0, 1) eq "\xff") {
             $connection->_error("TABLE_DUMP failed", substr($_, 0, $want, ""));
             return;
@@ -1355,7 +1355,7 @@ sub binlog_dump {
     croak "binlog_dump has no ", join(", ", keys %params), " parameter" if %params;
     utf8::downgrade($file, 1) || croak "Wide character in filename";
     $connection->send_command($command, $callback,
-                              pack("VvVa*", $pos, $flags, $id, $file), 
+                              pack("VvVa*", $pos, $flags, $id, $file),
                               $parent);
 }
 
@@ -1484,12 +1484,12 @@ sub send_command {
         $connection->send_compressed($seq_no, substr($msg, 0, 2**20, "")) while
             length $msg > 2**20;
         $connection->send_compressed($seq_no, $msg);
-        push(@{$connection->{answers}}, 
+        push(@{$connection->{answers}},
              [shift, shift, undef, $parent, $seq_no]);
     } elsif ($length >= MAX3) {
         my $seq_no = multi_packet($connection->{out_buffer},
                                   pack("C", $_[0] & ~PART_MASK), $_[2]);
-        push(@{$connection->{answers}}, 
+        push(@{$connection->{answers}},
              [shift, shift, undef, $parent, $seq_no]);
     } else {
         $connection->{out_buffer} .= pack('VC', $length, $_[0] & ~PART_MASK);
@@ -1506,7 +1506,7 @@ sub send_command {
 package WEC::MySQL::Connection::Server;
 use Carp;
 use WEC::Connection qw(COMMAND ARG PARENT HEADER BODY);
-use WEC::MySQL::Constants qw(LATIN1 REC_LEN COMPRESS_LEN 
+use WEC::MySQL::Constants qw(LATIN1 REC_LEN COMPRESS_LEN
                              ENCODED_ZERO ENCODED_ERROR
                              UNKNOWN_ERROR MAX3
                              NOT_SUPPORTED_YET SPECIFIC_ACCESS_DENIED_ERROR
@@ -1577,7 +1577,7 @@ sub auth {
     (my $caps, $want, $connection->{user}, my $password) =
         unpack('vV@5Z*a*', substr($_, 0, $want, ""));
     if ($connection->{compress} && !($caps & COMPRESS)) {
-        croak "Client doesn't support compression" if 
+        croak "Client doesn't support compression" if
             $connection->{compress} > 0;
         $connection->{compress} = 0;
     }
@@ -1613,7 +1613,7 @@ main::diag("Compression is now $connection->{compress}");
         $connection->send_error(NOT_SUPPORTED_YET, "Login is not supported (yet)");
     }
     return unless $connection->{out_handle};
-    # When fixing this, remember that under compress the first packet should 
+    # When fixing this, remember that under compress the first packet should
     # NOT be compresed, but the rest should be. Tricky since after this point
     # the localized $connection->{compress} will get restored
     croak "No answer" if @{$connection->{answers}} && $connection->{answers}[0][COMMAND] != -1;
@@ -1656,7 +1656,7 @@ sub compressed_body {
         while ($connection->{in_want} <= length) {
             $connection->{in_process}->($connection);
             return unless $connection->{in_process};
-            if ($connection->{in_process} == \&execute && 
+            if ($connection->{in_process} == \&execute &&
                 $connection->{in_state} == HEADER) {
                 $_ eq "" ||
                     croak "Unexpected stuff left in decompressed packet";
@@ -1823,7 +1823,7 @@ sub flush {
         $connection->send0 if $connection->{out_buffer} eq "";
     }
     while (@{$connection->{answers}} && $connection->{answers}[0][ARG]) {
-        utf8::downgrade($connection->{answers}[0][ARG], 1) || 
+        utf8::downgrade($connection->{answers}[0][ARG], 1) ||
             croak "Wide character in packet";
         $connection->{out_buffer} .= $connection->{answers}[0][ARG];
         $connection->{answers}[0][ARG] = undef;

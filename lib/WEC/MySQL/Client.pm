@@ -34,7 +34,7 @@ sub init {
     my ($client, $params) = @_;
 
     if (defined $client->{destination}) {
-        $client->{destination} = "tcp://" . $client->{destination} unless 
+        $client->{destination} = "tcp://" . $client->{destination} unless
             $client->{destination} =~ m!\A\w+://!;
         $client->{destination} .= ":" . PORT if
             $client->{destination} =~ m!\Atcp://[^:]+$!i;

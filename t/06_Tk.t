@@ -9,7 +9,7 @@ unless (eval { require Tk }) {
         exit;
 }
 plan 'no_plan';
-            
+
 is($WEC::kernel_type, undef, 'No event class set');
 use_ok('WEC');
 is($WEC::kernel_type, 'WEC::Tk', 'Event class set to WEC::Tk');

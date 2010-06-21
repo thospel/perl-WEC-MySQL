@@ -5,7 +5,7 @@ our $password	= undef;
 # Database on which we will run tests
 our $database	= "test";
 
-# A fake database we will try to create and drop. 
+# A fake database we will try to create and drop.
 # Don't use anything you care about here
 our $scratch_database = "test_WEC";
 
